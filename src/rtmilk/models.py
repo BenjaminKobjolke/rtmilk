@@ -15,7 +15,7 @@ class BaseError(Exception):
 class APIError(BaseError):
 	"""Error documented in RTM API"""
 	def __init__(self, code, message):
-		super().__init__(self)
+		super().__init__(message)
 		self.code = code
 		self.message = message
 
@@ -141,6 +141,13 @@ class NotesResponse(OkStat):
 class NotePayload(BaseModel):
 	note: list[Note]
 
+class Participant(BaseModel):
+	id: str
+	username: str
+
+class ParticipantsPayload(BaseModel):
+	contact: list[Participant]
+
 class Tags(BaseModel):
 	tag: list[str]
 
@@ -152,7 +159,7 @@ class TaskSeries(BaseModel):
 	source: str
 	url: EmptyStrToNone[str | None]
 	location_id: str
-	participants: list[str]
+	participants: ParticipantsPayload | list[str]
 
 	# see test_that_unions_are_necessary_for_notes_list for why the Union is necessary
 	# in the case where this is a list[str], it's always an empty list
