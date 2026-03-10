@@ -33,9 +33,10 @@ def _ValidateReturn(type_, rsp):
 	except ValidationError as e:
 		_log.error(f'Failed to validate against {type_}:\n{pformat(rsp)}\n{e}')
 	try:
-		return FailStat(**rsp)
+		fail = FailStat(**rsp)
 	except ValidationError as e:
-		raise APIError from e
+		raise APIError(-1, str(e)) from e
+	raise APIError(fail.err.code, fail.err.msg)
 
 def ApiSig(sharedSecret, params):
 	sortedItems = sorted(params.items(), key=lambda x: x[0])
