@@ -25,6 +25,43 @@ except APIError as e:
     print(e)
 ```
 
+The high-level client also supports list targeting, Smart Add, and common task edits:
+
+```python
+from rtmilk import PriorityEnum
+
+task = client.Add('Pick up milk', listId='123', smartAdd=True)
+print(task.id)  # listId/taskSeriesId/taskId
+task = client.TaskFromId(task.id)  # no fetch; property values start as None
+task.priority.Set(PriorityEnum.Priority2)
+task.tags.Add({'shopping'})
+task.tags.Remove({'old-tag'})
+task.dueDate.Set('tomorrow 5pm')
+lists = client.GetLists()
+tags = client.GetTags()
+```
+
+Each sync operation has an async twin, such as `AddAsync`, `GetListsAsync`, and `task.dueDate.SetAsync`.
+
+# Command line
+
+Set `RTM_API_KEY`, `RTM_SHARED_SECRET`, and `RTM_TOKEN` in the environment, then run `rtm <command>`. `rtm auth` needs only the key and shared secret; it opens the authorization URL and prints `RTM_TOKEN=<token>` after authorization. The tool does not read a `.env` file itself.
+
+| Command | Result |
+| --- | --- |
+| `rtm list [FILTER]` | JSON array of tasks; default filter is `status:incomplete` |
+| `rtm lists` / `rtm tags` | JSON array of names |
+| `rtm add NAME [--list NAME] [--smart]` | New task |
+| `rtm complete ID` / `rtm uncomplete ID` | Completion state |
+| `rtm delete ID` | Deletion confirmation |
+| `rtm rename ID NAME` | New name |
+| `rtm due ID [TEXT]` | Stored due date; omit text to clear |
+| `rtm priority ID {1,2,3,N}` | Priority |
+| `rtm tag ID [--add TAG ...] [--remove TAG ...]` | Updated tags |
+| `rtm note ID TITLE TEXT` | Added note |
+
+Task IDs use `listId/taskSeriesId/taskId`. Successful commands print JSON on stdout, except `auth`, which prints the token line. Errors print JSON on stderr. Exit codes are 0 for success, 1 for API or service errors, and 2 for missing credentials, malformed IDs, or usage errors. Date-only due dates are shown in the machine's local time zone, assumed to match the RTM account time zone.
+
 # Usage of API functions directly
 ```python
 from rtmilk import API, FailStat
