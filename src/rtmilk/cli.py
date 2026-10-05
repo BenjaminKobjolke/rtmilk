@@ -4,6 +4,7 @@
 import argparse
 import os
 import sys
+import webbrowser
 from json import dumps
 
 from . import APIError, AuthorizationSession, BaseError, CreateClient, PriorityEnum
@@ -126,8 +127,9 @@ def Main(argv=None) -> int:
 	try:
 		if args.command == 'auth':
 			session = AuthorizationSession(os.environ['RTM_API_KEY'], os.environ['RTM_SHARED_SECRET'], 'delete')
-			print(f'Open {session.url} and authorize, then press Enter:', file=sys.stderr)
-			input()
+			print(f'Open {session.url} and authorize, then press Enter (type o + Enter to open it in the default browser):', file=sys.stderr)
+			while input().strip().lower() == 'o':
+				webbrowser.open(session.url)
 			print(f'RTM_TOKEN={session.Done()}')
 		else:
 			client = CreateClient(os.environ['RTM_API_KEY'], os.environ['RTM_SHARED_SECRET'], os.environ['RTM_TOKEN'])

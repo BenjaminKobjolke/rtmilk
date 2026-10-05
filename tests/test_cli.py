@@ -114,8 +114,12 @@ def test_auth(monkeypatch, capsys):
 		def Done(self):
 			return 'tok'
 	monkeypatch.setattr(cli, 'AuthorizationSession', Session)
-	monkeypatch.setattr('builtins.input', lambda: '')
+	answers = iter(['o', ''])
+	opened = []
+	monkeypatch.setattr('builtins.input', lambda: next(answers))
+	monkeypatch.setattr(cli.webbrowser, 'open', opened.append)
 	assert cli.Main(['auth']) == 0
 	output = capsys.readouterr()
 	assert output.out.strip() == 'RTM_TOKEN=tok'
 	assert 'https://example.test/auth' in output.err
+	assert opened == ['https://example.test/auth']
