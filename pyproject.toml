@@ -29,6 +29,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/rkhwaja/rtmilk"
 
+[project.scripts]
+rtm = "rtmilk.cli:Main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -87,6 +90,9 @@ lint.select = ["ALL"]
     ]
 "client.py" = [
     "SLF001",   # Disallows private member access
+    ]
+"cli.py" = [
+    "T20",      # Disallows print
     ]
 
 [tool.ruff.lint.flake8-quotes]
