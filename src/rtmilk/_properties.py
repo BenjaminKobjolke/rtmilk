@@ -1,15 +1,25 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, tzinfo
 from logging import getLogger
 from typing import Generic, TypeVar
 
 from .api_sync import API
 from .api_async import APIAsync
-from .models import Note
+from .models import Note, PriorityEnum
 
 _log = getLogger(__name__)
 _T = TypeVar('_T')
+
+def _LoadDate(rtmDate, hasTime, tz: tzinfo | None = None):
+	if rtmDate is None:
+		return None
+	# ponytail: Machine time zone assumes the RTM account time zone; use SettingsGetList().settings.timezone with zoneinfo if they differ.
+	local = rtmDate.astimezone(tz)
+	return local if hasTime else local.date()
+
+def _TagsOf(taskSeries):
+	return set(taskSeries.tags.tag) if hasattr(taskSeries.tags, 'tag') else set(taskSeries.tags)
 
 class _Property(Generic[_T]):
 	_value: _T | None
@@ -57,6 +67,7 @@ class TagsProperty(_Property[set[str]]):
 								taskseries_id=self._task._taskSeriesId,
 								task_id=self._task._taskId,
 								tags=list(value))
+		self._LoadValue(set(value))
 
 	async def SetAsync(self, value: set[str]):
 		task = self._task
@@ -66,6 +77,31 @@ class TagsProperty(_Property[set[str]]):
 								taskseries_id=self._task._taskSeriesId,
 								task_id=self._task._taskId,
 								tags=list(value))
+		self._LoadValue(set(value))
+
+	def Add(self, value: set[str]):
+		response = self._task._client.api.TasksAddTags(timeline=self._task._client.timeline,
+			list_id=self._task._listId, taskseries_id=self._task._taskSeriesId,
+			task_id=self._task._taskId, tags=list(value))
+		self._LoadValue(_TagsOf(response.list.taskseries[0]))
+
+	async def AddAsync(self, value: set[str]):
+		response = await self._task._client.apiAsync.TasksAddTags(timeline=self._task._client.timeline,
+			list_id=self._task._listId, taskseries_id=self._task._taskSeriesId,
+			task_id=self._task._taskId, tags=list(value))
+		self._LoadValue(_TagsOf(response.list.taskseries[0]))
+
+	def Remove(self, value: set[str]):
+		response = self._task._client.api.TasksRemoveTags(timeline=self._task._client.timeline,
+			list_id=self._task._listId, taskseries_id=self._task._taskSeriesId,
+			task_id=self._task._taskId, tags=list(value))
+		self._LoadValue(_TagsOf(response.list.taskseries[0]))
+
+	async def RemoveAsync(self, value: set[str]):
+		response = await self._task._client.apiAsync.TasksRemoveTags(timeline=self._task._client.timeline,
+			list_id=self._task._listId, taskseries_id=self._task._taskSeriesId,
+			task_id=self._task._taskId, tags=list(value))
+		self._LoadValue(_TagsOf(response.list.taskseries[0]))
 
 class CompleteProperty(_Property[bool]):
 	def Set(self, value: bool):
@@ -81,6 +117,7 @@ class CompleteProperty(_Property[bool]):
 				list_id=self._task._listId,
 				taskseries_id=self._task._taskSeriesId,
 				task_id=self._task._taskId)
+		self._LoadValue(value)
 
 	async def SetAsync(self, value: bool):
 		if value is True:
@@ -95,6 +132,7 @@ class CompleteProperty(_Property[bool]):
 				list_id=self._task._listId,
 				taskseries_id=self._task._taskSeriesId,
 				task_id=self._task._taskId)
+		self._LoadValue(value)
 
 class DateProperty(_Property[date | datetime | None]):
 	def __init__(self, task, dateType):
@@ -110,16 +148,36 @@ class DateProperty(_Property[date | datetime | None]):
 		}
 		if value is not None:
 			parameters[self._dateType] = value
-			parameters[f'has_{self._dateType}_time'] = isinstance(value, datetime)
+			if isinstance(value, str):
+				parameters['parse'] = True
+			else:
+				parameters[f'has_{self._dateType}_time'] = isinstance(value, datetime)
 		return parameters
 
-	def Set(self, value: date | datetime | None):
+	def Set(self, value: date | datetime | str | None):
 		parameters = self._Parameters(value)
-		(self.__class__.F)(self._task._client.api, **parameters) # ty: ignore[unresolved-attribute]
+		response = (self.__class__.F)(self._task._client.api, **parameters) # ty: ignore[unresolved-attribute]
+		task0 = response.list.taskseries[0].task[0]
+		self._LoadValue(_LoadDate(getattr(task0, self._dateType), getattr(task0, f'has_{self._dateType}_time')))
 
-	async def SetAsync(self, value: date | datetime | None):
+	async def SetAsync(self, value: date | datetime | str | None):
 		parameters = self._Parameters(value)
-		await (self.__class__.FA)(self._task._client.apiAsync, **parameters) # ty: ignore[unresolved-attribute]
+		response = await (self.__class__.FA)(self._task._client.apiAsync, **parameters) # ty: ignore[unresolved-attribute]
+		task0 = response.list.taskseries[0].task[0]
+		self._LoadValue(_LoadDate(getattr(task0, self._dateType), getattr(task0, f'has_{self._dateType}_time')))
+
+class PriorityProperty(_Property[PriorityEnum]):
+	def Set(self, value: PriorityEnum):
+		self._task._client.api.TasksSetPriority(timeline=self._task._client.timeline,
+			list_id=self._task._listId, taskseries_id=self._task._taskSeriesId,
+			task_id=self._task._taskId, priority=value)
+		self._LoadValue(value)
+
+	async def SetAsync(self, value: PriorityEnum):
+		await self._task._client.apiAsync.TasksSetPriority(timeline=self._task._client.timeline,
+			list_id=self._task._listId, taskseries_id=self._task._taskSeriesId,
+			task_id=self._task._taskId, priority=value)
+		self._LoadValue(value)
 
 class StartDateProperty(DateProperty):
 	"""None means no start date"""
@@ -142,6 +200,7 @@ class NameProperty(_Property[str]):
 								taskseries_id=self._task._taskSeriesId,
 								task_id=self._task._taskId,
 								name=value)
+		self._LoadValue(value)
 
 	async def SetAsync(self, value: str):
 		await self._task._client.apiAsync.TasksSetName(timeline=self._task._client.timeline,
@@ -149,3 +208,4 @@ class NameProperty(_Property[str]):
 								taskseries_id=self._task._taskSeriesId,
 								task_id=self._task._taskId,
 								name=value)
+		self._LoadValue(value)

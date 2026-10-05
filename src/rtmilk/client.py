@@ -7,10 +7,11 @@ from pydantic import validate_call
 
 from .api_async import APIAsync
 from .api_sync import API
-from .models import _RaiseIfError
-from ._properties import CompleteProperty, DueDateProperty, NameProperty, NotesProperty, StartDateProperty, TagsProperty
+from .models import RTMList, _RaiseIfError
+from ._properties import CompleteProperty, DueDateProperty, NameProperty, NotesProperty, PriorityProperty, StartDateProperty, TagsProperty, _LoadDate, _TagsOf
 
 _log = getLogger(__name__)
+_TASK_ID_PARTS = 3
 
 class Task:
 	"""Represents an RTM task"""
@@ -27,11 +28,21 @@ class Task:
 		self.dueDate = DueDateProperty(self)
 		self.complete = CompleteProperty(self)
 		self.notes = NotesProperty(self)
+		self.priority = PriorityProperty(self)
+		self.url: str | None = None
 		self.createTime: datetime | None = None
 		self.modifiedTime: datetime | None = None
 
 	def __repr__(self):
 		return f'Task({self.name.value})'
+
+	@property
+	def id(self) -> str:
+		return f'{self._listId}/{self._taskSeriesId}/{self._taskId}'
+
+	@property
+	def listId(self) -> str:
+		return self._listId
 
 	@validate_call
 	def Delete(self):
@@ -53,24 +64,19 @@ class Task:
 def FilterDate(date_):
 	return datetime.strftime(date_, '%m/%d/%Y')
 
-def _LoadDate(rtmDate, hasTime):
-	if rtmDate is None:
-		return None
-	if hasTime:
-		return rtmDate
-	return rtmDate.date()
-
 def _CreateFromTaskSeries(client, listId, taskSeries):
 	_log.info(f'{taskSeries=}')
 	task0 = taskSeries.task[0]
 	result = Task(client, listId, taskSeries.id, task0.id)
 
 	result.name._LoadValue(taskSeries.name)
-	result.tags._LoadValue(set(taskSeries.tags.tag) if hasattr(taskSeries.tags, 'tag') else set(taskSeries.tags))
+	result.tags._LoadValue(_TagsOf(taskSeries))
 	result.startDate._LoadValue(_LoadDate(task0.start, task0.has_start_time))
 	result.dueDate._LoadValue(_LoadDate(task0.due, task0.has_due_time))
 	result.complete._LoadValue(task0.completed is not None)
+	result.priority._LoadValue(task0.priority)
 	result.notes._LoadValue([] if isinstance(taskSeries.notes, list) else taskSeries.notes.note)
+	result.url = taskSeries.url
 	result.createTime = taskSeries.created
 	result.modifiedTime = taskSeries.modified
 
@@ -122,9 +128,9 @@ class _Client:
 		return _CreateListOfTasks(self, listResponse)
 
 	@validate_call
-	def Add(self, name: str) -> Task:
+	def Add(self, name: str, listId: str | None = None, smartAdd: bool = False) -> Task:
 		_log.info(f'Add: {name}')
-		taskResponse = _RaiseIfError(self.api.TasksAdd(self.timeline, name)) # ty: ignore[invalid-argument-type]
+		taskResponse = _RaiseIfError(self.api.TasksAdd(self.timeline, name, list_id=listId, parse=True if smartAdd else None)) # ty: ignore[invalid-argument-type]
 		return _CreateFromTaskSeries(self, listId=taskResponse.list.id, taskSeries=taskResponse.list.taskseries[0])
 
 	@validate_call
@@ -134,7 +140,31 @@ class _Client:
 		return _CreateListOfTasks(self, listResponse)
 
 	@validate_call
-	async def AddAsync(self, name: str) -> Task:
+	async def AddAsync(self, name: str, listId: str | None = None, smartAdd: bool = False) -> Task:
 		_log.info(f'AddAsync: {name}')
-		taskResponse = _RaiseIfError(await self.apiAsync.TasksAdd(self.timeline, name)) # ty: ignore[invalid-argument-type]
+		taskResponse = _RaiseIfError(await self.apiAsync.TasksAdd(self.timeline, name, list_id=listId, parse=True if smartAdd else None)) # ty: ignore[invalid-argument-type]
 		return _CreateFromTaskSeries(self, listId=taskResponse.list.id, taskSeries=taskResponse.list.taskseries[0])
+
+	@validate_call
+	def GetLists(self) -> list[RTMList]:
+		return _RaiseIfError(self.api.ListsGetList()).lists.list
+
+	@validate_call
+	async def GetListsAsync(self) -> list[RTMList]:
+		return _RaiseIfError(await self.apiAsync.ListsGetList()).lists.list
+
+	@validate_call
+	def GetTags(self) -> list[str]:
+		return [tag.name for tag in _RaiseIfError(self.api.TagsGetList()).tags.tag]
+
+	@validate_call
+	async def GetTagsAsync(self) -> list[str]:
+		return [tag.name for tag in _RaiseIfError(await self.apiAsync.TagsGetList()).tags.tag]
+
+	@validate_call
+	def TaskFromId(self, id_: str) -> Task:
+		"""Build a task by id without fetching it; property values stay None until a setter runs."""
+		parts = id_.split('/')
+		if len(parts) != _TASK_ID_PARTS or not all(parts):
+			raise ValueError(f'Malformed task id: {id_}')
+		return Task(self, *parts)

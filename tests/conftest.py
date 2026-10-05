@@ -1,10 +1,32 @@
 from os import environ
 from unittest.mock import MagicMock
+from types import SimpleNamespace
 from uuid import uuid4
 
 from pytest import fixture
 
-from rtmilk import API, APIAsync, CreateClient
+from rtmilk import API, APIAsync, CreateClient, api_async, api_sync
+
+def TaskRsp(*, name='x', tags=None, due='', has_due_time='0', priority='N', url='', notes=None):
+	return {'stat': 'ok', 'transaction': {'id': '1', 'undoable': '1'}, 'list': {'id': '10', 'taskseries': [{
+		'id': '20', 'created': '2026-10-05T08:00:00Z', 'modified': '2026-10-05T08:00:00Z',
+		'name': name, 'source': 'api', 'url': url, 'location_id': '', 'participants': [],
+		'notes': notes if notes is not None else [], 'tags': {'tag': tags} if tags else [],
+		'task': [{'id': '30', 'added': '2026-10-05T08:00:00Z', 'completed': '', 'deleted': '',
+			'due': due, 'estimate': '', 'has_due_time': has_due_time, 'has_start_time': '0',
+			'postponed': '0', 'priority': priority, 'start': ''}]}]}}
+
+@fixture
+def fakeRtm(monkeypatch):
+	fake = SimpleNamespace(calls=[], responses={'rtm.timelines.create': {'stat': 'ok', 'timeline': '1'}})
+	def Call(params):
+		fake.calls.append(params)
+		return fake.responses[params['method']]
+	async def CallAsync(params):
+		return Call(params)
+	monkeypatch.setattr(api_sync, '_CallSync', Call)
+	monkeypatch.setattr(api_async, '_CallAsync', CallAsync)
+	return fake
 
 try:
 	from dotenv import load_dotenv

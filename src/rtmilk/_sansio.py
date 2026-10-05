@@ -339,7 +339,7 @@ class TasksSetPriority(AuthorizedCall):
 
 	@classmethod
 	def Out(cls, **rsp):
-		return _ValidateReturn(TaskPayload, rsp['list'])
+		return _ValidateReturn(TaskPayload, rsp.get('list', rsp))
 
 class TasksSetStartDate(AuthorizedCall):
 	def In(self, timeline: str, list_id: str, taskseries_id: str, task_id: str, start: date | datetime | str | None = None, has_start_time: bool | None = None, parse: bool | None = None):
