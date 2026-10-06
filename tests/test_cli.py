@@ -1,5 +1,7 @@
 # Copyright (c) 2026 rtmilk contributors
+import os
 from json import loads
+from time import time
 
 import pytest
 
@@ -7,9 +9,11 @@ from conftest import TaskRsp
 from rtmilk import cli
 
 USAGE_ERROR = 2
+TWO_CALLS = 2
 
 @pytest.fixture
-def cliRtm(fakeRtm, monkeypatch):
+def cliRtm(fakeRtm, monkeypatch, tmp_path):
+	monkeypatch.setattr(cli, '_CACHE_DIR', str(tmp_path))
 	for name in ('RTM_API_KEY', 'RTM_SHARED_SECRET', 'RTM_TOKEN'):
 		monkeypatch.setenv(name, name)
 	fakeRtm.responses.update({
@@ -61,9 +65,13 @@ def test_add_list_selection(cliRtm, capsys):
 	assert call['parse'] == '1'
 	for name in ('unknown', 'Old'):
 		before = len([call for call in cliRtm.calls if call['method'] == 'rtm.tasks.add'])
+		beforeLists = sum(call['method'] == 'rtm.lists.getList' for call in cliRtm.calls)
+		beforeTimelines = sum(call['method'] == 'rtm.timelines.create' for call in cliRtm.calls)
 		assert cli.Main(['add', 'x', '--list', name]) == 1
 		assert loads(capsys.readouterr().err)['code'] is None
 		assert len([call for call in cliRtm.calls if call['method'] == 'rtm.tasks.add']) == before
+		assert sum(call['method'] == 'rtm.lists.getList' for call in cliRtm.calls) == beforeLists + 1
+		assert sum(call['method'] == 'rtm.timelines.create' for call in cliRtm.calls) == beforeTimelines
 
 
 @pytest.mark.parametrize(('arguments', 'method', 'expected'), [
@@ -88,6 +96,8 @@ def test_mutations(cliRtm, capsys, arguments, method, expected):
 		assert result['due'] is not None
 	call = cliRtm.calls[-1]
 	assert call['method'] == method
+	assert [entry['method'] for entry in cliRtm.calls[:2]] == ['rtm.timelines.create', method]
+	assert sum(entry['method'] == 'rtm.timelines.create' for entry in cliRtm.calls) == 1
 	for key, value in {'list_id': '10', 'taskseries_id': '20', 'task_id': '30'}.items():
 		assert call[key] == value
 
@@ -95,7 +105,7 @@ def test_mutations(cliRtm, capsys, arguments, method, expected):
 def test_usage_and_api_error(cliRtm, capsys):
 	assert cli.Main(['complete', '10/20']) == USAGE_ERROR
 	assert loads(capsys.readouterr().err)['code'] is None
-	assert len(cliRtm.calls) == 1
+	assert len(cliRtm.calls) == 0
 	assert cli.Main(['tag', '10/20/30']) == USAGE_ERROR
 	assert loads(capsys.readouterr().err)['code'] is None
 	cliRtm.responses['rtm.tasks.setPriority'] = {'stat': 'fail', 'err': {'code': '340', 'msg': 'bad task'}}
@@ -123,3 +133,101 @@ def test_auth(monkeypatch, capsys):
 	assert output.out.strip() == 'RTM_TOKEN=tok'
 	assert 'https://example.test/auth' in output.err
 	assert opened == ['https://example.test/auth']
+
+
+def test_cache_expires(cliRtm, capsys):
+	assert cli.Main(['lists']) == 0
+	assert _Output(capsys) == ['Inbox']
+	path = cli._CachePath('lists')  # noqa: SLF001 - inspect the cache file under test
+	os.utime(path, (time() - 3601, time() - 3601))
+	assert cli.Main(['lists']) == 0
+	assert _Output(capsys) == ['Inbox']
+	assert sum(call['method'] == 'rtm.lists.getList' for call in cliRtm.calls) == TWO_CALLS
+
+
+def test_cache_per_account(cliRtm, monkeypatch, capsys, tmp_path):
+	assert cli.Main(['lists']) == 0
+	_Output(capsys)
+	monkeypatch.setenv('RTM_TOKEN', 'another-token')
+	assert cli.Main(['lists']) == 0
+	_Output(capsys)
+	assert sum(call['method'] == 'rtm.lists.getList' for call in cliRtm.calls) == TWO_CALLS
+	assert len(list(tmp_path.glob('*-lists.json'))) == TWO_CALLS
+
+
+def test_corrupt_cache_is_ignored(cliRtm, capsys):  # noqa: ARG001 - fixture provides isolated cache
+	assert cli.Main(['lists']) == 0
+	_Output(capsys)
+	path = cli._CachePath('lists')  # noqa: SLF001 - corrupt the cache file under test
+	for invalid in ('not json', 'null'):
+		with open(path, 'w', encoding='utf-8') as file:
+			file.write(invalid)
+		assert cli.Main(['lists']) == 0
+		assert _Output(capsys) == ['Inbox']
+	assert cli.Main(['tags']) == 0
+	_Output(capsys)
+	with open(cli._CachePath('tags'), 'w', encoding='utf-8') as file:  # noqa: SLF001 - corrupt the cache file under test
+		file.write('{}')
+	assert cli.Main(['tags']) == 0
+	assert _Output(capsys) == ['a']
+
+
+def test_cache_reuses_lists_and_tags(cliRtm, capsys):
+	for command in ('lists', 'lists', 'tags', 'tags', 'list'):
+		assert cli.Main([command]) == 0
+		_Output(capsys)
+	assert [call['method'] for call in cliRtm.calls] == ['rtm.lists.getList', 'rtm.tags.getList', 'rtm.tasks.getList']
+
+
+def test_refresh_flag(cliRtm, capsys):
+	assert cli.Main(['lists']) == 0
+	_Output(capsys)
+	assert cli.Main(['tags']) == 0
+	_Output(capsys)
+	cliRtm.responses['rtm.lists.getList']['lists']['list'][0]['name'] = 'Renamed'
+	cliRtm.responses['rtm.tags.getList']['tags']['tag'][0]['name'] = 'b'
+	assert cli.Main(['lists', '--refresh']) == 0
+	assert _Output(capsys) == ['Renamed']
+	assert cli.Main(['tags', '--refresh']) == 0
+	assert _Output(capsys) == ['b']
+	assert cli.Main(['lists']) == 0
+	assert _Output(capsys) == ['Renamed']
+	assert [call['method'] for call in cliRtm.calls] == ['rtm.lists.getList', 'rtm.tags.getList', 'rtm.lists.getList', 'rtm.tags.getList']
+
+
+def test_cache_miss_refetches_lists(cliRtm, capsys):
+	assert cli.Main(['lists']) == 0
+	_Output(capsys)
+	cliRtm.responses['rtm.lists.getList']['lists']['list'].append({'id': '12', 'name': 'New', 'deleted': '0', 'locked': '0', 'archived': '0', 'position': '2', 'smart': '0'})
+	cliRtm.responses['rtm.tasks.add']['list']['id'] = '12'
+	assert cli.Main(['add', 'x', '--list', 'New']) == 0
+	assert _Output(capsys)['list'] == 'New'
+	assert [call['method'] for call in cliRtm.calls].count('rtm.lists.getList') == TWO_CALLS
+	assert next(call for call in cliRtm.calls if call['method'] == 'rtm.tasks.add')['list_id'] == '12'
+	cli._WriteCache('lists', {'10': 'Inbox'})  # noqa: SLF001 - set up a stale cache entry
+	cliRtm.responses['rtm.tasks.getList']['tasks']['list'][0]['id'] = '12'
+	assert cli.Main(['list']) == 0
+	assert _Output(capsys)[0]['list'] == 'New'
+
+
+def test_add_without_writable_cache(cliRtm, monkeypatch, capsys):
+	monkeypatch.setattr(cli, '_WriteCache', lambda *_: None)
+	assert cli.Main(['add', 'x', '--list', 'inbox']) == 0
+	assert _Output(capsys)['list'] == 'Inbox'
+	assert [call['method'] for call in cliRtm.calls].count('rtm.lists.getList') == 1
+
+
+def test_unknown_tag_drops_tag_cache(cliRtm, capsys):
+	assert cli.Main(['tags']) == 0
+	_Output(capsys)
+	assert cli.Main(['tag', '10/20/30', '--add', 'a']) == 0
+	_Output(capsys)
+	assert cli.Main(['tags']) == 0
+	_Output(capsys)
+	assert [call['method'] for call in cliRtm.calls].count('rtm.tags.getList') == 1
+	cliRtm.responses['rtm.tasks.addTags'] = TaskRsp(tags=['b'])
+	assert cli.Main(['tag', '10/20/30', '--add', 'b']) == 0
+	_Output(capsys)
+	assert cli.Main(['tags']) == 0
+	_Output(capsys)
+	assert [call['method'] for call in cliRtm.calls].count('rtm.tags.getList') == TWO_CALLS

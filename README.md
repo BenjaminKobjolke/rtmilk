@@ -51,9 +51,9 @@ Set `RTM_API_KEY`, `RTM_SHARED_SECRET`, and `RTM_TOKEN` in the environment, then
 
 | Command | Result |
 | --- | --- |
-| `rtm list [FILTER]` | JSON array of tasks; default filter is `status:incomplete` |
-| `rtm lists` / `rtm tags` | JSON array of names |
-| `rtm add NAME [--list NAME] [--smart]` | New task |
+| `rtm list [FILTER] [--refresh]` | JSON array of tasks; default filter is `status:incomplete` |
+| `rtm lists [--refresh]` / `rtm tags [--refresh]` | JSON array of names |
+| `rtm add NAME [--list NAME] [--smart] [--refresh]` | New task |
 | `rtm complete ID` / `rtm uncomplete ID` | Completion state |
 | `rtm delete ID` | Deletion confirmation |
 | `rtm rename ID NAME` | New name |
@@ -63,6 +63,8 @@ Set `RTM_API_KEY`, `RTM_SHARED_SECRET`, and `RTM_TOKEN` in the environment, then
 | `rtm note ID TITLE TEXT` | Added note |
 
 Task IDs use `listId/taskSeriesId/taskId`. Successful commands print JSON on stdout, except `auth`, which prints the token line. Errors print JSON on stderr. Exit codes are 0 for success, 1 for API or service errors, and 2 for missing credentials, malformed IDs, or usage errors. Date-only due dates are shown in the machine's local time zone, assumed to match the RTM account time zone.
+
+List and tag names are cached for one hour in `~/.cache/rtmilk/`, with separate files per account. An unknown list name or id triggers one fresh read; `--refresh` forces one. A tag created in the RTM app can stay unknown to `rtm tags` for up to an hour. Delete the folder to clear the cache.
 
 # Usage of API functions directly
 ```python

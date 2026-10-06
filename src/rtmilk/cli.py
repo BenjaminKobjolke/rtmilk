@@ -5,13 +5,52 @@ import argparse
 import os
 import sys
 import webbrowser
-from json import dumps
+from contextlib import suppress
+from hashlib import sha256
+from json import dump, dumps, load
+from time import time
 
 from . import APIError, AuthorizationSession, BaseError, CreateClient, PriorityEnum
 
 
 def _Error(message, code=None):
 	print(dumps({'error': message, 'code': code}), file=sys.stderr)
+
+
+_CACHE_DIR = os.path.join(os.path.expanduser('~'), '.cache', 'rtmilk')
+_CACHE_SECONDS = 3600
+
+
+def _CachePath(kind):
+	account = sha256(f"{os.environ['RTM_API_KEY']}:{os.environ['RTM_TOKEN']}".encode()).hexdigest()[:16]
+	return os.path.join(_CACHE_DIR, f'{account}-{kind}.json')
+
+
+def _ReadCache(kind):
+	"""Return a valid fresh cache entry, or None."""
+	path = _CachePath(kind)
+	try:
+		if not 0 <= time() - os.path.getmtime(path) < _CACHE_SECONDS:
+			return None
+		with open(path, encoding='utf-8') as file:
+			value = load(file)
+	except (OSError, ValueError):
+		return None
+	if kind == 'lists' and isinstance(value, dict) and all(isinstance(key, str) and isinstance(name, str) for key, name in value.items()):
+		return value
+	if kind == 'tags' and isinstance(value, list) and all(isinstance(tag, str) for tag in value):
+		return value
+	return None
+
+
+def _WriteCache(kind, value):
+	path = _CachePath(kind)
+	temporary = f'{path}.{os.getpid()}.tmp'
+	with suppress(OSError):
+		os.makedirs(_CACHE_DIR, exist_ok=True)
+		with open(temporary, 'w', encoding='utf-8') as file:
+			dump(value, file)
+		os.replace(temporary, path)
 
 
 class _Parser(argparse.ArgumentParser):
@@ -26,12 +65,14 @@ def _BuildParser():
 	commands.add_parser('auth')
 	listParser = commands.add_parser('list')
 	listParser.add_argument('filter', nargs='?', default='status:incomplete')
-	commands.add_parser('lists')
-	commands.add_parser('tags')
+	for command in ('lists', 'tags'):
+		commands.add_parser(command).add_argument('--refresh', action='store_true')
+	listParser.add_argument('--refresh', action='store_true')
 	addParser = commands.add_parser('add')
 	addParser.add_argument('name')
 	addParser.add_argument('--list')
 	addParser.add_argument('--smart', action='store_true')
+	addParser.add_argument('--refresh', action='store_true')
 	for command in ('complete', 'uncomplete', 'delete', 'rename', 'due', 'priority', 'tag', 'note'):
 		commandParser = commands.add_parser(command)
 		commandParser.add_argument('id')
@@ -50,8 +91,32 @@ def _BuildParser():
 	return parser
 
 
-def _ListNames(client):
-	return {list_.id: list_.name for list_ in client.GetLists() if not list_.deleted}
+def _ListNames(client, refresh=False, complete=lambda _: True):
+	# ponytail: a list id absent from every lists response triggers one refetch per command; revisit if observed.
+	names = None if refresh else _ReadCache('lists')
+	if names is None or not complete(names):
+		names = {list_.id: list_.name for list_ in client.GetLists() if not list_.deleted}
+		_WriteCache('lists', names)
+	return names
+
+
+def _Tags(client, refresh=False):
+	tags = None if refresh else _ReadCache('tags')
+	if tags is None:
+		tags = client.GetTags()
+		_WriteCache('tags', tags)
+	return tags
+
+
+def _ForgetTagsUnlessKnown(tags):
+	cached = _ReadCache('tags')
+	if cached is not None and not set(tags) <= set(cached):
+		with suppress(OSError):
+			os.remove(_CachePath('tags'))
+
+
+def _FindList(listNames, name):
+	return next((id_ for id_, listName in listNames.items() if listName.casefold() == name.casefold()), None)
 
 
 def _Row(task, listNames):
@@ -71,20 +136,24 @@ def _Row(task, listNames):
 def _Run(client, args):  # noqa: C901, PLR0911, PLR0912 - command dispatch mirrors the CLI contract
 	if args.command == 'list':
 		tasks = client.Get(args.filter)
-		listNames = _ListNames(client)
+		listNames = _ListNames(client, args.refresh, lambda names: all(task.listId in names for task in tasks))
+		_ForgetTagsUnlessKnown(tag for task in tasks for tag in task.tags.value)
 		return [_Row(task, listNames) for task in tasks]
 	if args.command == 'lists':
-		return list(_ListNames(client).values())
+		return list(_ListNames(client, args.refresh).values())
 	if args.command == 'tags':
-		return client.GetTags()
+		return _Tags(client, args.refresh)
 	if args.command == 'add':
-		listNames = _ListNames(client)
+		listNames = _ListNames(client, args.refresh, lambda names: args.list is None or _FindList(names, args.list) is not None)
 		listId = None
 		if args.list is not None:
-			listId = next((id_ for id_, name in listNames.items() if name.casefold() == args.list.casefold()), None)
+			listId = _FindList(listNames, args.list)
 			if listId is None:
 				raise BaseError(f'List not found: {args.list}')
 		task = client.Add(args.name, listId=listId, smartAdd=args.smart)
+		if task.listId not in listNames:
+			listNames = _ListNames(client, refresh=True)
+		_ForgetTagsUnlessKnown(task.tags.value)
 		return _Row(task, listNames)
 	if args.command == 'tag' and not (args.add or args.remove):
 		raise ValueError('tag requires --add or --remove')
@@ -110,6 +179,7 @@ def _Run(client, args):  # noqa: C901, PLR0911, PLR0912 - command dispatch mirro
 			task.tags.Add(set(args.add))
 		if args.remove:
 			task.tags.Remove(set(args.remove))
+		_ForgetTagsUnlessKnown(task.tags.value)
 		return {'id': task.id, 'tags': sorted(task.tags.value)}
 	if args.command == 'note':
 		task.notes.Add(args.title, args.text)
