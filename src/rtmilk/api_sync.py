@@ -5,7 +5,7 @@ from logging import getLogger
 from pprint import pformat
 
 from pydantic import validate_call
-from niquests import get
+from niquests import Session
 from niquests.exceptions import RequestException
 
 from .api_base import UnauthorizedAPIBase
@@ -16,10 +16,12 @@ from ._secrets import SecretsWithAuthorization
 from ._utils import HttpsUrl
 
 _log = getLogger(__name__)
+# ponytail: one process-wide session; use per-client sessions if separate pools become necessary.
+_session = Session(happy_eyeballs=True)
 
 def _CallSync(params):
 	try:
-		response = get(REST_URL, params=params)
+		response = _session.get(REST_URL, params=params)
 		json = response.json()
 		_log.debug(f'JSON response:\n{pformat(json)}')
 		return json['rsp']

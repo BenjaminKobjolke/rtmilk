@@ -94,9 +94,7 @@ def _CreateListOfTasks(client, listResponse):
 
 def CreateClient(clientId: str, clientSecret: str, token: str) -> _Client:
 	"""Create RTM client object synchronously"""
-	client = _Client(clientId, clientSecret, token)
-	client._CreateTimeline()
-	return client
+	return _Client(clientId, clientSecret, token)
 
 async def CreateClientAsync(clientId: str, clientSecret: str, token: str) -> _Client:
 	"""Create RTM client object asynchronously"""
@@ -110,16 +108,23 @@ class _Client:
 	def __init__(self, clientId: str, clientSecret: str, token: str):
 		self.api = API(clientId, clientSecret, token)
 		self.apiAsync = APIAsync(clientId, clientSecret, token)
-		self.timeline = None
+		self._timeline = None
+
+	@property
+	def timeline(self) -> str:
+		if self._timeline is None:
+			self._CreateTimeline()
+		assert self._timeline is not None
+		return self._timeline
 
 	def __repr__(self):
 		return '_Client()'
 
 	def _CreateTimeline(self):
-		self.timeline = _RaiseIfError(self.api.TimelinesCreate().timeline)
+		self._timeline = _RaiseIfError(self.api.TimelinesCreate().timeline)
 
 	async def _CreateTimelineAsync(self):
-		self.timeline = _RaiseIfError((await self.apiAsync.TimelinesCreate()).timeline)
+		self._timeline = _RaiseIfError((await self.apiAsync.TimelinesCreate()).timeline)
 
 	@validate_call
 	def Get(self, filter_: str, lastSync: datetime | None = None) -> list[Task]:

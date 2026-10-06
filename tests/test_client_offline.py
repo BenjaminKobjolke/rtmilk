@@ -1,13 +1,37 @@
 # Copyright (c) 2026 rtmilk contributors
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from conftest import TaskRsp
 from rtmilk import APIError, CreateClient, CreateClientAsync, PriorityEnum
 from rtmilk._properties import _LoadDate
+from rtmilk import api_sync, BaseError
+from niquests.exceptions import RequestException
 
 INVALID_TASK_CODE = 340
+TWO_CALLS = 2
+
+
+def test_sync_calls_share_one_session(monkeypatch):
+	calls = []
+	class Session:
+		def get(self, url, *, params):
+			calls.append((url, params))
+			return SimpleNamespace(json=lambda: {'rsp': {'stat': 'ok', 'timeline': '1'}})
+	session = Session()
+	monkeypatch.setattr(api_sync, '_session', session)
+	api = api_sync.API('k', 's', 't')
+	assert api.TimelinesCreate().timeline == '1'
+	assert api.TimelinesCreate().timeline == '1'
+	assert len(calls) == TWO_CALLS
+	assert all(url == api_sync.REST_URL for url, _ in calls)
+	def Fail(*_args, **_kwargs):
+		raise RequestException
+	monkeypatch.setattr(session, 'get', Fail)
+	with pytest.raises(BaseError):
+		api.TimelinesCreate()
 
 def _Responses(fakeRtm):
 	fakeRtm.responses.update({
@@ -65,6 +89,21 @@ def test_client_operations(fakeRtm):
 	assert client.GetTags() == ['a']
 
 
+def test_timeline_is_created_on_first_write(fakeRtm):
+	_Responses(fakeRtm)
+	client = CreateClient('k', 's', 't')
+	assert fakeRtm.calls == []
+	client.Get('status:incomplete')
+	client.GetLists()
+	client.GetTags()
+	assert all(call['method'] != 'rtm.timelines.create' for call in fakeRtm.calls)
+	client.Add('x')
+	assert [call['method'] for call in fakeRtm.calls[-2:]] == ['rtm.timelines.create', 'rtm.tasks.add']
+	client.Add('y')
+	assert sum(call['method'] == 'rtm.timelines.create' for call in fakeRtm.calls) == 1
+	assert client.timeline == '1'
+
+
 def test_date_only_uses_local_day():
 	instant = datetime(2026, 10, 5, 22, tzinfo=timezone.utc)
 	localZone = timezone(timedelta(hours=2))
@@ -77,6 +116,7 @@ def test_date_only_uses_local_day():
 async def test_async_client_operations(fakeRtm):
 	_Responses(fakeRtm)
 	client = await CreateClientAsync('k', 's', 't')
+	assert fakeRtm.calls[0]['method'] == 'rtm.timelines.create'
 	task = await client.AddAsync('x', listId='7', smartAdd=True)
 	assert fakeRtm.calls[-1]['list_id'] == '7'
 	assert fakeRtm.calls[-1]['parse'] == '1'
@@ -88,3 +128,4 @@ async def test_async_client_operations(fakeRtm):
 	assert isinstance(task.dueDate.value, datetime)
 	assert (await client.GetListsAsync())[0].name == 'Inbox'
 	assert await client.GetTagsAsync() == ['a']
+	assert sum(call['method'] == 'rtm.timelines.create' for call in fakeRtm.calls) == 1

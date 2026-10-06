@@ -5,6 +5,8 @@ Python wrapper for "Remember the Milk" [API](https://www.rememberthemilk.com/ser
 - Subscription support
 
 # Usage of client
+`CreateClient` creates a timeline on the first write; `CreateClientAsync` creates one up front.
+
 ```python
 from rtmilk import APIError, CreateClient, CreateClientAsync
 
