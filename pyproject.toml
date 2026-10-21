@@ -49,6 +49,7 @@ coverage xml
 """
 
 [tool.ruff]
+extend-exclude = ["*.md"]
 line-length = 320
 lint.ignore = [
     "A002",     # Disallows argument names which shadow builtins
