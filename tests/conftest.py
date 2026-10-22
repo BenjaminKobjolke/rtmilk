@@ -1,9 +1,10 @@
 from os import environ
+from pathlib import Path
 from unittest.mock import MagicMock
 from types import SimpleNamespace
 from uuid import uuid4
 
-from pytest import fixture
+from pytest import fixture, skip
 
 from rtmilk import API, APIAsync, CreateClient, api_async, api_sync
 
@@ -36,11 +37,14 @@ except ImportError:
 	pass
 
 def _GetConfig():
-	if 'RTM_TOKEN' in environ:
-		return (environ['RTM_API_KEY'], environ['RTM_SHARED_SECRET'], environ['RTM_TOKEN'])
-	with open('rtm-token.txt', encoding='utf-8') as f:
-		token = f.read()
-	return (environ['RTM_API_KEY'], environ['RTM_SHARED_SECRET'], token)
+	token = environ.get('RTM_TOKEN')
+	if token is None and Path('rtm-token.txt').is_file():
+		token = Path('rtm-token.txt').read_text(encoding='utf-8')
+	api_key = environ.get('RTM_API_KEY')
+	shared_secret = environ.get('RTM_SHARED_SECRET')
+	if not all((api_key, shared_secret, token)):
+		skip('Live RTM tests need RTM_API_KEY, RTM_SHARED_SECRET and RTM_TOKEN or rtm-token.txt')
+	return (api_key, shared_secret, token)
 
 @fixture(scope='session')
 def api():
