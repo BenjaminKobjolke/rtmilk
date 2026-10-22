@@ -112,16 +112,14 @@ class _Client:
 
 	@property
 	def timeline(self) -> str:
-		if self._timeline is None:
-			self._CreateTimeline()
-		assert self._timeline is not None
-		return self._timeline
+		timeline = self._timeline
+		if timeline is None:
+			timeline = _RaiseIfError(self.api.TimelinesCreate().timeline)
+			self._timeline = timeline
+		return timeline
 
 	def __repr__(self):
 		return '_Client()'
-
-	def _CreateTimeline(self):
-		self._timeline = _RaiseIfError(self.api.TimelinesCreate().timeline)
 
 	async def _CreateTimelineAsync(self):
 		self._timeline = _RaiseIfError((await self.apiAsync.TimelinesCreate()).timeline)
@@ -135,7 +133,7 @@ class _Client:
 	@validate_call
 	def Add(self, name: str, listId: str | None = None, smartAdd: bool = False) -> Task:
 		_log.info(f'Add: {name}')
-		taskResponse = _RaiseIfError(self.api.TasksAdd(self.timeline, name, list_id=listId, parse=True if smartAdd else None)) # ty: ignore[invalid-argument-type]
+		taskResponse = _RaiseIfError(self.api.TasksAdd(self.timeline, name, list_id=listId, parse=True if smartAdd else None))
 		return _CreateFromTaskSeries(self, listId=taskResponse.list.id, taskSeries=taskResponse.list.taskseries[0])
 
 	@validate_call
@@ -147,7 +145,7 @@ class _Client:
 	@validate_call
 	async def AddAsync(self, name: str, listId: str | None = None, smartAdd: bool = False) -> Task:
 		_log.info(f'AddAsync: {name}')
-		taskResponse = _RaiseIfError(await self.apiAsync.TasksAdd(self.timeline, name, list_id=listId, parse=True if smartAdd else None)) # ty: ignore[invalid-argument-type]
+		taskResponse = _RaiseIfError(await self.apiAsync.TasksAdd(self.timeline, name, list_id=listId, parse=True if smartAdd else None))
 		return _CreateFromTaskSeries(self, listId=taskResponse.list.id, taskSeries=taskResponse.list.taskseries[0])
 
 	@validate_call
