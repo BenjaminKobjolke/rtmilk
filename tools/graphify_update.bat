@@ -35,7 +35,7 @@ set "GRAPHIFY=graphify"
 where graphify >nul 2>nul
 if errorlevel 1 (
   if exist "graphify-out\.graphify_python" (
-    set /p GPY=<graphify-out\.graphify_python
+    for /f "usebackq delims=" %%P in ("graphify-out\.graphify_python") do set "GPY=%%P"
     set "GRAPHIFY=!GPY:python.exe=graphify.exe!"
   ) else (
     echo ERROR: graphify not on PATH and no graphify-out\.graphify_python found.
@@ -47,6 +47,11 @@ if errorlevel 1 (
 echo === [1/2] live-graph AST refresh (no LLM) : %CODE_DIR% ===
 set "GRAPHIFY_OUT=%CD%\graphify-out"
 "%GRAPHIFY%" update "%CD%\%CODE_DIR%"
+if errorlevel 1 (
+  set "RESULT=!errorlevel!"
+  set "FAILED_COMMAND=graphify update"
+  goto :command_failed
+)
 echo.
 
 echo === [2/2] smoke test: live root graph ===
@@ -56,16 +61,43 @@ if not exist "graphify-out\graph.json" (
   popd & endlocal & exit /b 1
 )
 REM Report directed flag + node count of the LIVE root graph (should be directed:True).
-if exist "graphify-out\.graphify_python" (
-  set /p GPY2=<graphify-out\.graphify_python
-  "!GPY2!" -c "import json;d=json.load(open('graphify-out/graph.json',encoding='utf-8'));print('directed:',d.get('directed'),'  nodes:',len(d.get('nodes',[])))"
+if not exist "graphify-out\.graphify_python" (
+  echo ERROR: graphify-out\.graphify_python not found; cannot verify graph metadata.
+  popd & endlocal & exit /b 1
+)
+for /f "usebackq delims=" %%P in ("graphify-out\.graphify_python") do set "GPY2=%%P"
+if not defined GPY2 (
+  echo ERROR: graphify-out\.graphify_python is empty; cannot verify graph metadata.
+  popd & endlocal & exit /b 1
+)
+"!GPY2!" -c "import json,sys;d=json.load(open('graphify-out/graph.json',encoding='utf-8'));print('directed:',d.get('directed'),'  nodes:',len(d.get('nodes',[])));sys.exit(d.get('directed') is not True)"
+if errorlevel 1 (
+  set "RESULT=!errorlevel!"
+  set "FAILED_COMMAND=graph metadata check"
+  goto :command_failed
 )
 echo.
 echo --- god nodes (top 5) ---
 "%GRAPHIFY%" god-nodes --top 5
+if errorlevel 1 (
+  set "RESULT=!errorlevel!"
+  set "FAILED_COMMAND=graphify god-nodes"
+  goto :command_failed
+)
 echo.
 echo --- sample query ---
 "%GRAPHIFY%" query "What are the main modules and how do they connect?"
+if errorlevel 1 (
+  set "RESULT=!errorlevel!"
+  set "FAILED_COMMAND=graphify query"
+  goto :command_failed
+)
 
 popd
 endlocal
+exit /b 0
+
+:command_failed
+echo ERROR: %FAILED_COMMAND% failed with exit code %RESULT%.
+popd
+endlocal & exit /b %RESULT%
