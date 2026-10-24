@@ -198,7 +198,12 @@ def Main(argv=None) -> int:
 		if args.command == 'auth':
 			session = AuthorizationSession(os.environ['RTM_API_KEY'], os.environ['RTM_SHARED_SECRET'], 'delete')
 			print(f'Open {session.url} and authorize, then press Enter (type o + Enter to open it in the default browser):', file=sys.stderr)
-			while input().strip().lower() == 'o':
+			while True:
+				if os.environ.get('TICKETS_WATCHER_COMMAND_RUN') == '1':
+					print('::tw-input-line::', flush=True)
+				answer = input().strip().lower()
+				if answer != 'o':
+					break
 				webbrowser.open(session.url)
 			print(f'RTM_TOKEN={session.Done()}')
 		else:

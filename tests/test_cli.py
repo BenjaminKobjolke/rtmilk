@@ -113,10 +113,15 @@ def test_usage_and_api_error(cliRtm, capsys):
 	assert loads(capsys.readouterr().err) == {'error': 'bad task', 'code': 340}
 
 
-def test_auth(monkeypatch, capsys):
+@pytest.mark.parametrize('watcher', [False, True])
+def test_auth(monkeypatch, capsys, watcher):
 	monkeypatch.setenv('RTM_API_KEY', 'k')
 	monkeypatch.setenv('RTM_SHARED_SECRET', 's')
 	monkeypatch.delenv('RTM_TOKEN', raising=False)
+	if watcher:
+		monkeypatch.setenv('TICKETS_WATCHER_COMMAND_RUN', '1')
+	else:
+		monkeypatch.delenv('TICKETS_WATCHER_COMMAND_RUN', raising=False)
 	class Session:
 		def __init__(self, key, secret, perms):
 			assert (key, secret, perms) == ('k', 's', 'delete')
@@ -130,7 +135,8 @@ def test_auth(monkeypatch, capsys):
 	monkeypatch.setattr(cli.webbrowser, 'open', opened.append)
 	assert cli.Main(['auth']) == 0
 	output = capsys.readouterr()
-	assert output.out.strip() == 'RTM_TOKEN=tok'
+	assert [line for line in output.out.splitlines() if line != '::tw-input-line::'] == ['RTM_TOKEN=tok']
+	assert output.out.count('::tw-input-line::') == (2 if watcher else 0)
 	assert 'https://example.test/auth' in output.err
 	assert opened == ['https://example.test/auth']
 
