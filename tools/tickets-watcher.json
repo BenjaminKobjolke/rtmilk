@@ -5,7 +5,10 @@
   "command_check_scripts": [
     "graphify_update.bat"
   ],
-  "analysis_commands": [],
+  "analysis_commands": [
+    "uv run ruff check src tests",
+    "uv run ty check src tests"
+  ],
   "analysis_commands_seen": {
     "scripts": [
       "graphify_update.bat"
