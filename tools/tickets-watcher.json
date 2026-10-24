@@ -6,13 +6,29 @@
     "graphify_update.bat"
   ],
   "analysis_commands": [
+    "uv run pytest",
     "uv run ruff check src tests",
     "uv run ty check src tests"
   ],
+  "analysis_command_kinds": {
+    "uv run ruff check src tests": "code_quality",
+    "uv run ty check src tests": "code_quality"
+  },
   "analysis_commands_seen": {
     "scripts": [
       "graphify_update.bat"
     ],
     "tests": true
+  },
+  "analysis_command_states": {
+    "uv run pytest": {
+      "test": "green"
+    },
+    "uv run ruff check src tests": {
+      "code_quality": "green"
+    },
+    "uv run ty check src tests": {
+      "code_quality": "green"
+    }
   }
 }
