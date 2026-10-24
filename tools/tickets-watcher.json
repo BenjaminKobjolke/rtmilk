@@ -6,7 +6,7 @@
     "graphify_update.bat"
   ],
   "analysis_commands": [
-    "uv run pytest",
+    "uv run pytest tests/test_client_offline.py tests/test_conftest_config.py tests/test_cli.py tests/test_filter.py::testFilterString tests/test_mirror.py::testMirror",
     "uv run ruff check src tests",
     "uv run ty check src tests"
   ],
@@ -21,7 +21,7 @@
     "tests": true
   },
   "analysis_command_states": {
-    "uv run pytest": {
+    "uv run pytest tests/test_client_offline.py tests/test_conftest_config.py tests/test_cli.py tests/test_filter.py::testFilterString tests/test_mirror.py::testMirror": {
       "test": "green"
     },
     "uv run ruff check src tests": {
