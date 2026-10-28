@@ -1,6 +1,6 @@
 {
   "files": {
-    "TICKETS_WATCHER_COMMANDS.md": 2
+    "TICKETS_WATCHER_COMMANDS.md": 3
   },
   "command_check_scripts": [
     "graphify_update.bat"
@@ -30,5 +30,6 @@
     "uv run ty check src tests": {
       "code_quality": "green"
     }
-  }
+  },
+  "project_id": 12304
 }
